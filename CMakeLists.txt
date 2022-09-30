@@ -4,13 +4,11 @@ project(discord-bot VERSION 0.1.0)
 include(CTest)
 enable_testing()
 
-add_executable(discord-bot src/main.c)
+add_executable(discord-bot src/main.c src/verifier.c src/discord_interactions.c)
 
-add_subdirectory(ulfius ../ulfius)
+target_link_libraries(discord-bot PRIVATE ulfius sodium jansson)
 
-target_include_directories(discord-bot PRIVATE ulfius/include)
-target_include_directories(discord-bot PRIVATE "${PROJECT_BINARY_DIR}/ulfius")
-target_link_libraries(discord-bot PRIVATE ulfius)
+set_property(TARGET discord-bot PROPERTY C_STANDARD 17)
 
 set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
