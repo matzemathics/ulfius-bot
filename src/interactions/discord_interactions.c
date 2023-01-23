@@ -137,11 +137,11 @@ int interaction_handler_callback(
 
 void register_commands(interactions_handler *self)
 {
-  const char *discord_api_path_template = \
+  const char discord_api_path_template[] = \
     "https://discord.com/api/v10" \
     "/applications/%s/guilds/%s/commands";
 
-  size_t path_len = strlen(discord_api_path_template) 
+  size_t path_len = sizeof discord_api_path_template - 1 
     + strlen(self->app_id) 
     + strlen(self->guild_id);
 
@@ -173,7 +173,7 @@ void register_commands(interactions_handler *self)
 
   if (res.status / 100 != 2)
   {
-    fprintf(stderr, "Requesting installed commands failed with status %d\n", res.status);
+    fprintf(stderr, "Requesting installed commands failed with status %ld\n", res.status);
     free(api_path);
     free(auth_str);
     ulfius_clean_response_full(&res);

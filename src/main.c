@@ -4,8 +4,8 @@
 #include <ulfius.h>
 #include <signal.h>
 
-#include "verifier.h"
-#include "discord_interactions.h"
+#include "verifier/verifier.h"
+#include "interactions/discord_interactions.h"
 
 #define PORT 8080
 

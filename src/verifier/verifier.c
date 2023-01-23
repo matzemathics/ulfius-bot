@@ -1,6 +1,5 @@
 
 #include <ulfius.h>
-#include <sodium.h>
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -9,23 +8,10 @@
 #include <ctype.h>
 
 #include "verifier.h"
+#include "verifier_private.h"
 
 const char * const CLIENT_PUBLIC_KEY_SETTING = "publicKey";
 const char * const CLIENT_PUBLIC_KEY_ENV = "CLIENT_PUBLIC_KEY";
-
-typedef unsigned char signature[crypto_sign_ed25519_BYTES];
-typedef unsigned char public_key[crypto_sign_ed25519_PUBLICKEYBYTES];
-
-typedef struct _verifier_endpoint_handler
-{
-    i_endpoint_handler parent;
-    public_key public_key;
-} verifier_endpoint_handler;
-
-extern inline uint8_t read_hex_digit(const char c)
-{
-    return (c & 0xF) + (c >> 6) | ((c >> 3) & 0x8);
-}
 
 bool bytes_from_hex_string(const char *str, uint8_t target[], size_t target_size)
 {
@@ -33,7 +19,7 @@ bool bytes_from_hex_string(const char *str, uint8_t target[], size_t target_size
 
     if (str_len % 2 || str_len / 2 > target_size) 
     {
-        fprintf(stderr, "too long (%d vs %d)\n", str_len, target_size);
+        fprintf(stderr, "too long (%lu vs %lu)\n", str_len, target_size);
         return false;
     }
 
@@ -54,14 +40,16 @@ bool bytes_from_hex_string(const char *str, uint8_t target[], size_t target_size
     return true;
 }
 
-extern inline bool read_signature(const char *str, signature target)
+void get_payload_owned(char **payload, size_t *size, const struct _u_request *request)
 {
-    return bytes_from_hex_string(str, target, sizeof(signature));
-}
+    const char *hdr_timestamp = u_map_get(request->map_header, "X-Signature-Timestamp");
 
-extern inline bool read_public_key(const char *str, public_key target)
-{
-    return bytes_from_hex_string(str, target, sizeof(public_key));
+    *size = strlen(hdr_timestamp) + request->binary_body_length;
+    *payload = malloc(*size + 1);
+
+    (*payload)[0] = 0;
+    strcat(*payload, hdr_timestamp);
+    strcat(*payload, request->binary_body);
 }
 
 int verify_interaction_callback(
@@ -70,7 +58,6 @@ int verify_interaction_callback(
     void *user_data)
 {
     const char *hdr_signature = u_map_get(request->map_header, "X-Signature-Ed25519");
-    const char *hdr_timestamp = u_map_get(request->map_header, "X-Signature-Timestamp");
 
     signature sig;
     if (!read_signature(hdr_signature, sig))
@@ -79,22 +66,21 @@ int verify_interaction_callback(
         return U_CALLBACK_UNAUTHORIZED;
     }
 
-    size_t msg_len = strlen(hdr_timestamp) + request->binary_body_length;
-    unsigned char *message = malloc(msg_len + 1);
-    message[0] = 0;
-    strcat(message, hdr_timestamp);
-    strcat(message, request->binary_body);
+    char *payload = NULL;
+    size_t payload_len = 0;
+
+    get_payload_owned(&payload, &payload_len, request);
 
     verifier_endpoint_handler *self = (verifier_endpoint_handler*)user_data;
 
-    if (crypto_sign_verify_detached(sig, message, msg_len, self->public_key))
+    if (crypto_sign_verify_detached(sig, (unsigned char*)payload, payload_len, self->public_key))
     {
         fprintf(stderr, "Invalid signature: %s\n", hdr_signature);
-        free(message);
+        free(payload);
         return U_CALLBACK_UNAUTHORIZED;
     }
 
-    free(message);
+    free(payload);
     return U_CALLBACK_CONTINUE;
 }
 

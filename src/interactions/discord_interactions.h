@@ -1,7 +1,7 @@
 #ifndef DISCORDINTERACTIONS_H
 #define DISCORDINTERACTIONS_H
 
-#include "endpoint_handler.h"
+#include "../endpoint_handler.h"
 
 typedef struct interactions_handler
 {
