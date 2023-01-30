@@ -1,5 +1,9 @@
 #include "discord_interactions.h"
 
+#include "../http_api/discord_http_api.h"
+
+#include <jansson.h>
+#include <stdio.h>
 #include <string.h>
 #include <ulfius.h>
 #include <stdlib.h>
@@ -137,100 +141,79 @@ int interaction_handler_callback(
 
 void register_commands(interactions_handler *self)
 {
-  const char discord_api_path_template[] = \
-    "https://discord.com/api/v10" \
-    "/applications/%s/guilds/%s/commands";
+  http_api_client *client = http_api_client_init();
 
-  size_t path_len = sizeof discord_api_path_template - 1 
-    + strlen(self->app_id) 
-    + strlen(self->guild_id);
-
-  char *api_path = malloc(path_len + 1);
-  sprintf(api_path, discord_api_path_template, self->app_id, self->guild_id);
-
-  char *auth_str = malloc(strlen(self->bot_token) + 5);
-  sprintf(auth_str, "Bot %s", self->bot_token);
-
-  struct _u_request req = {0};
-  ulfius_init_request(&req);
-  req.http_url = api_path;
-  req.http_verb = "GET";
-  u_map_put(req.map_header, "Authorization", auth_str);
-  u_map_put(req.map_header, "Content-Type", "application/json; charset=UTF-8");
-  u_map_put(req.map_header, "User-Agent", "DiscordBot");
-
-  struct _u_response res = {0};
-  ulfius_init_response(&res);
-  if (ulfius_send_http_request(&req, &res))
+  // request whether commands are already installed
   {
-    fprintf(stderr, "Cannot request installed commands\n");
-    free(api_path);
-    free(auth_str);
-    ulfius_clean_response_full(&res);
-    ulfius_clean_request_full(&req);
-    return;
-  }
+    fprintf(stderr, "Requesting installed commands...\n");
+    struct _u_response *get_commands_resp = 
+      http_api_client_perform(client, "GET", NULL, "/applications/%s/guilds/%s/commands", self->app_id, self->guild_id);
 
-  if (res.status / 100 != 2)
-  {
-    fprintf(stderr, "Requesting installed commands failed with status %ld\n", res.status);
-    free(api_path);
-    free(auth_str);
-    ulfius_clean_response_full(&res);
-    ulfius_clean_request_full(&req);
-    return;
-  }
-
-  json_t *data = ulfius_get_json_body_response(&res, NULL);
-  if(data && !json_is_array(data))
-  {
-    fprintf(stderr, "Unexpected response from /commands endpoint: %s\n", res.binary_body);
-    free(api_path);
-    free(auth_str);
-    ulfius_clean_response_full(&res);
-    ulfius_clean_request_full(&req);
-    return;
-  }
-
-  if (!data)
-  {
-    ulfius_clean_response(&res);
-    memset(&res, 0, sizeof(struct _u_response));
-
-    // install commands
-    req.http_verb = "POST";
-
-    json_t *command = json_object();
-    json_object_set(command, "name", json_string("test"));
-    json_object_set(command, "description", json_string("basic test command"));
-    json_object_set(command, "type", json_integer(1));
-
-    ulfius_set_json_body_request(&req, command);
-
-    fprintf(stderr, "trying to install test command\n");
-    if (ulfius_send_http_request(&req, &res))
+    if ( !get_commands_resp )
     {
-      fprintf(stderr, "Cannot install test command\n");
-      free(api_path);
-      free(auth_str);
-      ulfius_clean_response_full(&res);
-      ulfius_clean_request_full(&req);
-    }
-
-    if (res.status / 100 != 2)
-    {
-      fprintf(stderr, "Installing commands failed with status %d\n", res.status);
-      free(api_path);
-      free(auth_str);
-      ulfius_clean_response_full(&res);
-      ulfius_clean_request_full(&req);
+      fprintf(stderr, "Cannot request installed commands\n");
+      http_api_client_free(client);
       return;
     }
 
-    ulfius_clean_response(&res);
+    if ( !HTTP_STATUS_IS_OK(get_commands_resp->status) )
+    {
+      fprintf(stderr, "Requesting installed commands failed with status %ld\n", get_commands_resp->status);
+      ulfius_clean_response_full(get_commands_resp);
+      http_api_client_free(client);
+      return;
+    }
+
+    json_t *data = ulfius_get_json_body_response(get_commands_resp, NULL);
+    if( data && !json_is_array(data) )
+    {
+      fprintf(stderr, "Unexpected response from /commands endpoint: %s\n", (char*)get_commands_resp->binary_body);
+      ulfius_clean_response_full(get_commands_resp);
+      http_api_client_free(client);
+      return;
+    }
+
+    if ( data )
+    {
+      fprintf(stderr, "%lu commands installed\n", json_array_size(data));
+      // TODO: check, whether all necessary commands are really installed
+      ulfius_clean_response_full(get_commands_resp);
+      http_api_client_free(client);
+      return;
+    }
+
+    ulfius_clean_response_full(get_commands_resp);
   }
 
-  fprintf(stderr, "%d commands installed\n", json_array_size(data));
+  // install commands
+  fprintf(stderr, "trying to install test command\n");
+
+  json_t *command = json_object();
+  json_object_set(command, "name", json_string("test"));
+  json_object_set(command, "description", json_string("basic test command"));
+  json_object_set(command, "type", json_integer(1));
+
+  struct _u_response *post_commands_resp = 
+    http_api_client_perform(client, "POST", NULL, "/applications/%s/guilds/%s/commands", self->app_id, self->guild_id);
+
+  if ( !post_commands_resp )
+  {
+    fprintf(stderr, "Cannot install test command\n");
+    http_api_client_free(client);
+  }
+
+  if ( !HTTP_STATUS_IS_OK(post_commands_resp->status) )
+  {
+    fprintf(stderr, "Installing commands failed with status %lu\n", post_commands_resp->status);
+    ulfius_clean_response_full(post_commands_resp);
+    http_api_client_free(client);
+    return;
+  }
+
+  ulfius_clean_response(post_commands_resp);
+  http_api_client_free(client);
+
+  fprintf(stderr, "/test command installed succesfully\n");
 }
 
 interactions_handler *new_interactions_handler()
@@ -241,7 +224,6 @@ interactions_handler *new_interactions_handler()
 
   self->app_id = getenv("APP_ID");
   self->guild_id = getenv("GUILD_ID");
-  self->bot_token = getenv("BOT_TOKEN");
 
   register_commands(self);
 

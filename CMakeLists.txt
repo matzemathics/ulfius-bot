@@ -4,7 +4,7 @@ project(discord-bot VERSION 0.1.0)
 include(CTest)
 enable_testing()
 
-add_executable(discord-bot src/main.c src/verifier/verifier.c src/interactions/discord_interactions.c)
+add_executable(discord-bot src/main.c src/verifier/verifier.c src/interactions/discord_interactions.c src/http_api/discord_http_api.c)
 target_link_libraries(discord-bot PRIVATE ulfius sodium jansson)
 set_property(TARGET discord-bot PROPERTY C_STANDARD 17)
 
